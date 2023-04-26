@@ -56,6 +56,9 @@ PLI_INT32 PLIbook_ShowVal_calltf(PLI_BYTE8 *user_data)
   vpi_get_value(net_handle, &current_value);
   vpi_printf("Signal %s ", vpi_get_str(vpiFullName, net_handle));
   vpi_printf("has the value %s\n", current_value.value.str);
+  current_value.value.str = "1";
+  vpi_put_value(net_handle, &current_value, NULL, vpiNoDelay);
+  vpi_printf("has the value %s\n", current_value.value.str);
   return(0);
 }
 void PLIbook_ShowVal_register()
