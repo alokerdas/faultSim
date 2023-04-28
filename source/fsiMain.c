@@ -22,9 +22,9 @@ PLI_INT32 fsim_compiletf(PLI_BYTE8 *user_data)
   /* check the type of object in system task arguments */
   arg_handle = vpi_scan(arg_iterator);
   arg_type = vpi_get(vpiType, arg_handle);
-  if (arg_type != vpiModule)
+  if (arg_type != vpiReg)
   {
-    vpi_printf("ERROR: $faultSimulate first arg must be a module instance name\n");
+    vpi_printf("ERROR: $faultSimulate first arg must be a reg\n");
     vpi_free_object(arg_iterator); /* free iterator memory */
     vpi_control(vpiFinish,0); /* abort simulation */
     return(0);
@@ -60,23 +60,53 @@ PLI_INT32 fsim_compiletf(PLI_BYTE8 *user_data)
 }
 PLI_INT32 fsim_calltf(PLI_BYTE8 *user_data)
 {
-  vpiHandle systf_handle, arg_iterator, arg_handle, net_handle;
+  vpiHandle systf_handle, arg_iterator, arg_handle, reg_handle;
   s_vpi_value current_value;
   /* obtain a handle to the system task instance */
   systf_handle = vpi_handle(vpiSysTfCall, NULL);
   /* obtain handle to system task argument
-  compiletf has already verified only 1 arg with correct type */
+  compiletf has already verified only 3 args with correct type */
   arg_iterator = vpi_iterate(vpiArgument, systf_handle);
-  net_handle = vpi_scan(arg_iterator);
-  vpi_free_object(arg_iterator); /* free iterator memory */
+  reg_handle = vpi_scan(arg_iterator);
   /* read current value */
   current_value.format = vpiBinStrVal; /* read value as a string */
-  vpi_get_value(net_handle, &current_value);
-  vpi_printf("Signal %s ", vpi_get_str(vpiFullName, net_handle));
+  vpi_get_value(reg_handle, &current_value);
+  vpi_printf("Signal %s ", vpi_get_str(vpiFullName, reg_handle));
   vpi_printf("has the value %s\n", current_value.value.str);
-  current_value.value.str = "1";
-  vpi_put_value(net_handle, &current_value, NULL, vpiNoDelay);
+
+  arg_handle = vpi_scan(arg_iterator);
+  current_value.format = vpiStringVal;
+  vpi_get_value(arg_handle, &current_value);
+  char *patFileName = current_value.value.str;
+  vpi_printf("Pattern file %s \n", patFileName);
+  FILE *patFile = fopen(patFileName, "r");
+  if (!patFile)
+  {
+    vpi_printf("ERROR: $faultSimulate could not open pattern file %s\n", patFileName);
+    vpi_control(vpiFinish, 1); /* abort simulation */
+    return(0);
+  }
+  char onePat[3];
+  if (fscanf(patFile, "%s\n", onePat))
+  {
+  current_value.format = vpiBinStrVal;
+  current_value.value.str = onePat;
+  vpi_put_value(reg_handle, &current_value, NULL, vpiNoDelay);
   vpi_printf("has the value %s\n", current_value.value.str);
+  }
+  else
+  {
+    vpi_printf("ERROR: $faultSimulate could not read pattern \n");
+    vpi_control(vpiFinish, 1); /* abort simulation */
+    return(0);
+  }
+
+  arg_handle = vpi_scan(arg_iterator);
+  current_value.format = vpiStringVal;
+  vpi_get_value(arg_handle, &current_value);
+  vpi_printf("Fault file %s \n", current_value.value.str);
+
+  vpi_free_object(arg_iterator); /* free iterator memory */
   return(0);
 }
 void fsim_register()
