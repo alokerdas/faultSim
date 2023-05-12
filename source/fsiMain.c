@@ -8,6 +8,7 @@ typedef struct ReadStimData {
   char *gm_value;
   vpiHandle patin_h; /* pointer to store handle for a Verilog object */
   vpiHandle patout_h; /* pointer to store handle for a Verilog object */
+  vpiHandle fault_h; /* pointer to store handle for a Verilog object */
 } s_ReadStimData, *p_ReadStimData;
 
 PLI_INT32 fsim_compiletf(PLI_BYTE8 *user_data)
@@ -71,6 +72,15 @@ PLI_INT32 fsim_compiletf(PLI_BYTE8 *user_data)
     return(0);
   }
   arg_handle = vpi_scan(arg_iterator);
+  arg_type = vpi_get(vpiType, arg_handle);
+  if (arg_type != vpiModule)
+  {
+    vpi_printf("ERROR: $faultSimulate fifth arg must be a module\n");
+    vpi_free_object(arg_iterator); /* free iterator memory */
+    vpi_control(vpiFinish,0); /* abort simulation */
+    return(0);
+  }
+  arg_handle = vpi_scan(arg_iterator);
   if (arg_handle != NULL)
   {
     vpi_printf("ERROR: $faultSimulate cannot have more than four arguments\n");
@@ -90,7 +100,6 @@ PLI_INT32 fsim_calltf(PLI_BYTE8 *user_data)
   char *fileName;
 
   StimData = (p_ReadStimData)malloc(sizeof(s_ReadStimData));
-  StimData->gm_value = NULL;
   /* obtain a handle to the system task instance */
   systf_handle = vpi_handle(vpiSysTfCall, NULL);
   /* obtain handle to system task argument
@@ -173,9 +182,12 @@ PLI_INT32 fsim_simulate_good_machine(p_cb_data cb_data)
   systf_h = (vpiHandle)cb_data->user_data;
   /* get ReadStimData pointer from work area for this task instance */
   StimData = (p_ReadStimData)vpi_get_userdata(systf_h);
+  StimData->gm_value = NULL;
+  StimData->fault_h = NULL;
   if (fscanf(StimData->pat_ptr, "%s\n", onePat) == EOF)
   {
     fclose(StimData->pat_ptr);
+    fclose(StimData->flt_ptr);
     vpi_control(vpiFinish, 1); /* finish simulation */
     return(0);
   }
@@ -184,6 +196,7 @@ PLI_INT32 fsim_simulate_good_machine(p_cb_data cb_data)
     value_s.format = vpiBinStrVal;
     value_s.value.str = onePat;
     vpi_put_value(StimData->patin_h, &value_s, NULL, vpiNoDelay);
+    vpi_printf("Pat has the value %s\n", value_s.value.str);
   }
   /* schedule callback to this routine when time to read next vector */
   time_s.type = vpiSimTime;
@@ -203,11 +216,12 @@ PLI_INT32 fsim_simulate_good_machine(p_cb_data cb_data)
 }
 PLI_INT32 fsim_simulate_faulty_machine(p_cb_data cb_data)
 {
-  vpiHandle systf_h, cb_h;
+  vpiHandle systf_h, cb_h, scope_h, module_iter, module_h, net_iter, net_h;
   s_cb_data data_s;
   s_vpi_time time_s;
   s_vpi_value value_s;
   p_ReadStimData StimData;
+  char *netName;
 
   /* retrieve system task handle from user_data */
   systf_h = (vpiHandle)cb_data->user_data;
@@ -215,16 +229,32 @@ PLI_INT32 fsim_simulate_faulty_machine(p_cb_data cb_data)
   StimData = (p_ReadStimData)vpi_get_userdata(systf_h);
 
   value_s.format = vpiBinStrVal;
-  vpi_get_value(StimData->patin_h, &value_s);
-  vpi_printf("Pat has the value %s\n", value_s.value.str);
   vpi_get_value(StimData->patout_h, &value_s);
-  vpi_printf("net o has the value %s\n", value_s.value.str);
+  if(!StimData->gm_value)
+  {
+    StimData->gm_value = strdup(value_s.value.str);
+    vpi_printf("net o has the GM value %s\n", StimData->gm_value);
+  }
+  else
+  {
+    if (strcmp(StimData->gm_value, value_s.value.str))
+    {
+      vpi_printf("net o has the FM value %s\n", value_s.value.str);
+      vpi_printf("Fault detected\n");
+    }
+  }
 
   /* read next fault from the file */
   char oneFlt[1024];
   if (fscanf(StimData->flt_ptr, "%s\n", oneFlt) == EOF)
   {
     rewind(StimData->flt_ptr);
+    // release the previous stuck value
+    if (StimData->fault_h)
+    {
+      value_s.value.str = "0";
+      vpi_put_value(StimData->fault_h, &value_s, NULL, vpiReleaseFlag);
+    }
     /* schedule callback to this routine when time to read next vector */
     time_s.type = vpiSimTime;
     time_s.low = 0;
@@ -243,6 +273,33 @@ PLI_INT32 fsim_simulate_faulty_machine(p_cb_data cb_data)
   }
   else
   {
+    // release the previous stuck value
+    if (StimData->fault_h)
+    {
+      value_s.value.str = "0";
+      vpi_put_value(StimData->fault_h, &value_s, NULL, vpiReleaseFlag);
+    }
+    // find the fault handle
+    module_iter = vpi_iterate(vpiModule, NULL);
+    module_h = vpi_scan(module_iter);
+    module_iter = vpi_iterate(vpiModule, module_h);
+    module_h = vpi_scan(module_iter);
+    if (module_h)
+    {
+      net_iter = vpi_iterate(vpiNet, module_h);
+      while (net_h = vpi_scan(net_iter))
+      {
+        netName = vpi_get_str(vpiFullName, net_h);
+        if (!strcmp(netName, oneFlt))
+        {
+          vpi_printf("Fault %s\n", netName);
+          StimData->fault_h = net_h;
+          value_s.value.str = "1";
+          vpi_put_value(net_h, &value_s, NULL, vpiForceFlag);
+        }
+      }
+    }
+
     /* schedule callback to this routine when time to read next vector */
     time_s.type = vpiSimTime;
     time_s.low = 0;
