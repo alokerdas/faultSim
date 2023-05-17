@@ -1,14 +1,23 @@
+#include <string.h>
+#include <stdlib.h>
 #include <vpi_user.h>
 
 PLI_INT32 fsim_simulate_faulty_machine(p_cb_data cb_data);
 PLI_INT32 fsim_simulate_good_machine(p_cb_data cb_data);
+typedef struct ReadFaultData {
+  char fault[64];
+  char faultModel[4];
+  char faultClass[4];
+  char faultStatus[4];
+} s_ReadFaultData, *p_ReadFaultData;
 typedef struct ReadStimData {
-  FILE *pat_ptr; /* test vector file pointer */
-  FILE *flt_ptr; /* test vector file pointer */
+  int faultIndex;
   char *gm_value;
+  FILE *pat_ptr; /* test vector file pointer */
   vpiHandle patin_h; /* pointer to store handle for a Verilog object */
   vpiHandle patout_h; /* pointer to store handle for a Verilog object */
   vpiHandle fault_h; /* pointer to store handle for a Verilog object */
+  p_ReadFaultData *fault_data; /* array of fault objects */
 } s_ReadStimData, *p_ReadStimData;
 
 PLI_INT32 fsim_compiletf(PLI_BYTE8 *user_data)
@@ -97,9 +106,12 @@ PLI_INT32 fsim_calltf(PLI_BYTE8 *user_data)
   s_cb_data cb_data_s;
   s_vpi_time time_s;
   p_ReadStimData StimData;
+  p_ReadFaultData *FaultData;
   char *fileName;
 
-  StimData = (p_ReadStimData)malloc(sizeof(s_ReadStimData));
+  StimData = (p_ReadStimData) malloc(sizeof(s_ReadStimData));
+  //StimData->rpt_ptr = NULL;
+  StimData->faultIndex = 0;
   /* obtain a handle to the system task instance */
   systf_handle = vpi_handle(vpiSysTfCall, NULL);
   /* obtain handle to system task argument
@@ -114,14 +126,32 @@ PLI_INT32 fsim_calltf(PLI_BYTE8 *user_data)
   vpi_get_value(arg_handle, &current_value);
   fileName = current_value.value.str;
   vpi_printf("Fault file %s \n", fileName);
-  StimData->flt_ptr = fopen(fileName, "r");
-  if (!StimData->flt_ptr)
+  FILE *flt_ptr = fopen(fileName, "r");
+  if (flt_ptr)
+  {
+    char oneline[128];
+    while (fgets(oneline, 128, flt_ptr))
+      StimData->faultIndex++;
+    FaultData = malloc(StimData->faultIndex * sizeof(p_ReadFaultData));
+    StimData->fault_data = FaultData;
+
+    rewind(flt_ptr);
+    StimData->fault_data[StimData->faultIndex] = NULL;
+    p_ReadFaultData oneFault = malloc(sizeof(s_ReadFaultData));
+    while (fscanf(flt_ptr, "%s %s %s %s\n", oneFault->fault, oneFault->faultModel, oneFault->faultClass, oneFault->faultStatus) != EOF)
+    {
+      StimData->faultIndex--;
+      StimData->fault_data[StimData->faultIndex] = oneFault;
+      oneFault = malloc(sizeof(s_ReadFaultData));
+    }
+    fclose(flt_ptr);
+  }
+  else
   {
     vpi_printf("ERROR: $faultSimulate could not open fault file %s\n", fileName);
     vpi_control(vpiFinish, 1); /* abort simulation */
     return(0);
   }
-
   arg_handle = vpi_scan(arg_iterator);
   current_value.format = vpiStringVal;
   vpi_get_value(arg_handle, &current_value);
@@ -183,11 +213,9 @@ PLI_INT32 fsim_simulate_good_machine(p_cb_data cb_data)
   /* get ReadStimData pointer from work area for this task instance */
   StimData = (p_ReadStimData)vpi_get_userdata(systf_h);
   StimData->gm_value = NULL;
-  StimData->fault_h = NULL;
   if (fscanf(StimData->pat_ptr, "%s\n", onePat) == EOF)
   {
     fclose(StimData->pat_ptr);
-    fclose(StimData->flt_ptr);
     vpi_control(vpiFinish, 1); /* finish simulation */
     return(0);
   }
@@ -213,10 +241,12 @@ PLI_INT32 fsim_simulate_good_machine(p_cb_data cb_data)
     vpi_printf("An error occurred registering ReadNextStim callback\n");
   else
     vpi_free_object(cb_h); /* don’t need callback handle */
+
+  return (0);
 }
 PLI_INT32 fsim_simulate_faulty_machine(p_cb_data cb_data)
 {
-  vpiHandle systf_h, cb_h, scope_h, module_iter, module_h, net_iter, net_h;
+  vpiHandle systf_h, cb_h, module_iter, module_h, net_iter, net_h;
   s_cb_data data_s;
   s_vpi_time time_s;
   s_vpi_value value_s;
@@ -240,45 +270,25 @@ PLI_INT32 fsim_simulate_faulty_machine(p_cb_data cb_data)
     if (strcmp(StimData->gm_value, value_s.value.str))
     {
       vpi_printf("net o has the FM value %s\n", value_s.value.str);
-      vpi_printf("Fault detected\n");
+      netName = vpi_get_str(vpiFullName, StimData->fault_h);
+      vpi_printf("Fault %s detected\n", netName);
+      FILE *rpt_ptr = fopen("fault.rpt", "a");
+      fprintf(rpt_ptr, "%s\n", netName);
+      fclose(rpt_ptr);
     }
+  }
+  // release the previous stuck value
+  if (StimData->fault_h)
+  {
+    value_s.value.str = "0";
+    vpi_put_value(StimData->fault_h, &value_s, NULL, vpiReleaseFlag);
   }
 
   /* read next fault from the file */
-  char oneFlt[1024];
-  if (fscanf(StimData->flt_ptr, "%s\n", oneFlt) == EOF)
+  p_ReadFaultData oneFlt = StimData->fault_data[StimData->faultIndex];
+  // release the previous stuck value
+  if (oneFlt)
   {
-    rewind(StimData->flt_ptr);
-    // release the previous stuck value
-    if (StimData->fault_h)
-    {
-      value_s.value.str = "0";
-      vpi_put_value(StimData->fault_h, &value_s, NULL, vpiReleaseFlag);
-    }
-    /* schedule callback to this routine when time to read next vector */
-    time_s.type = vpiSimTime;
-    time_s.low = 0;
-    time_s.high = 0;
-    data_s.reason = cbReadWriteSynch;
-    data_s.cb_rtn = fsim_simulate_good_machine;
-    data_s.obj = NULL; /* object required for scaled delays */
-    data_s.time = &time_s;
-    data_s.value = NULL;
-    data_s.user_data = (PLI_BYTE8 *)systf_h;
-    cb_h = vpi_register_cb(&data_s);
-    if (vpi_chk_error(NULL))
-      vpi_printf("An error occurred registering ReadNextStim callback\n");
-    else
-      vpi_free_object(cb_h); /* don’t need callback handle */
-  }
-  else
-  {
-    // release the previous stuck value
-    if (StimData->fault_h)
-    {
-      value_s.value.str = "0";
-      vpi_put_value(StimData->fault_h, &value_s, NULL, vpiReleaseFlag);
-    }
     // find the fault handle
     module_iter = vpi_iterate(vpiModule, NULL);
     module_h = vpi_scan(module_iter);
@@ -287,18 +297,21 @@ PLI_INT32 fsim_simulate_faulty_machine(p_cb_data cb_data)
     if (module_h)
     {
       net_iter = vpi_iterate(vpiNet, module_h);
-      while (net_h = vpi_scan(net_iter))
+      while ((net_h = vpi_scan(net_iter)))
       {
         netName = vpi_get_str(vpiFullName, net_h);
-        if (!strcmp(netName, oneFlt))
+        if (!strcmp(netName, oneFlt->fault))
         {
-          vpi_printf("Fault %s\n", netName);
-          StimData->fault_h = net_h;
-          value_s.value.str = "1";
+          if (!strcmp(oneFlt->faultModel, "SA0"))
+            value_s.value.str = "0";
+          if (!strcmp(oneFlt->faultModel, "SA1"))
+            value_s.value.str = "1";
           vpi_put_value(net_h, &value_s, NULL, vpiForceFlag);
+          StimData->fault_h = net_h;
         }
       }
     }
+    StimData->faultIndex++;
 
     /* schedule callback to this routine when time to read next vector */
     time_s.type = vpiSimTime;
@@ -316,4 +329,24 @@ PLI_INT32 fsim_simulate_faulty_machine(p_cb_data cb_data)
     else
       vpi_free_object(cb_h); /* don’t need callback handle */
   }
+  else
+  {
+    StimData->faultIndex = 0;
+    /* schedule callback to GM routine when time to read next vector */
+    time_s.type = vpiSimTime;
+    time_s.low = 0;
+    time_s.high = 0;
+    data_s.reason = cbReadWriteSynch;
+    data_s.cb_rtn = fsim_simulate_good_machine;
+    data_s.obj = NULL; /* object required for scaled delays */
+    data_s.time = &time_s;
+    data_s.value = NULL;
+    data_s.user_data = (PLI_BYTE8 *)systf_h;
+    cb_h = vpi_register_cb(&data_s);
+    if (vpi_chk_error(NULL))
+      vpi_printf("An error occurred registering ReadNextStim callback\n");
+    else
+      vpi_free_object(cb_h); /* don’t need callback handle */
+  }
+  return (0);
 }
