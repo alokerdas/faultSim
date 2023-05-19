@@ -164,8 +164,12 @@ PLI_INT32 fsim_calltf(PLI_BYTE8 *user_data)
     vpi_control(vpiFinish, 1); /* abort simulation */
     return(0);
   }
-
   vpi_free_object(arg_iterator); /* free iterator memory */
+
+  /* create the fault report file now. Preexisting file will be deleted. Current run can append */
+  FILE *rpt_ptr = fopen("fault.rpt", "w");
+  if (rpt_ptr)
+    fclose(rpt_ptr);
 
   /* setup a callback for start of simulation */
   time_s.type = vpiSimTime;
@@ -213,6 +217,7 @@ PLI_INT32 fsim_simulate_good_machine(p_cb_data cb_data)
   /* get ReadStimData pointer from work area for this task instance */
   StimData = (p_ReadStimData)vpi_get_userdata(systf_h);
   StimData->gm_value = NULL;
+  StimData->fault_h = NULL;
   if (fscanf(StimData->pat_ptr, "%s\n", onePat) == EOF)
   {
     fclose(StimData->pat_ptr);
@@ -250,6 +255,7 @@ PLI_INT32 fsim_simulate_faulty_machine(p_cb_data cb_data)
   s_cb_data data_s;
   s_vpi_time time_s;
   s_vpi_value value_s;
+  p_ReadFaultData oneFlt;
   p_ReadStimData StimData;
   char *netName;
 
@@ -267,13 +273,15 @@ PLI_INT32 fsim_simulate_faulty_machine(p_cb_data cb_data)
   }
   else
   {
+    oneFlt = StimData->fault_data[StimData->faultIndex++];
     if (strcmp(StimData->gm_value, value_s.value.str))
     {
       vpi_printf("net o has the FM value %s\n", value_s.value.str);
       netName = vpi_get_str(vpiFullName, StimData->fault_h);
       vpi_printf("Fault %s detected\n", netName);
+      strcpy(oneFlt->faultStatus, "DET");
       FILE *rpt_ptr = fopen("fault.rpt", "a");
-      fprintf(rpt_ptr, "%s\n", netName);
+      fprintf(rpt_ptr, "%s %s %s %s\n", netName, oneFlt->faultModel, oneFlt->faultClass, "DET");
       fclose(rpt_ptr);
     }
   }
@@ -284,9 +292,10 @@ PLI_INT32 fsim_simulate_faulty_machine(p_cb_data cb_data)
     vpi_put_value(StimData->fault_h, &value_s, NULL, vpiReleaseFlag);
   }
 
-  /* read next fault from the file */
-  p_ReadFaultData oneFlt = StimData->fault_data[StimData->faultIndex];
-  // release the previous stuck value
+  /* read next fault from the fault array */
+  oneFlt = StimData->fault_data[StimData->faultIndex];
+  while (oneFlt && !strcmp(oneFlt->faultStatus, "DET"))
+    oneFlt = StimData->fault_data[StimData->faultIndex++];
   if (oneFlt)
   {
     // find the fault handle
@@ -311,8 +320,6 @@ PLI_INT32 fsim_simulate_faulty_machine(p_cb_data cb_data)
         }
       }
     }
-    StimData->faultIndex++;
-
     /* schedule callback to this routine when time to read next vector */
     time_s.type = vpiSimTime;
     time_s.low = 0;
