@@ -5,7 +5,7 @@
 PLI_INT32 fsim_simulate_faulty_machine(p_cb_data cb_data);
 PLI_INT32 fsim_simulate_good_machine(p_cb_data cb_data);
 typedef struct ReadFaultData {
-  char fault[64];
+  vpiHandle fault_h; /* pointer to store handle for a Verilog object */
   char faultModel[4];
   char faultClass[4];
   char faultStatus[4];
@@ -16,7 +16,6 @@ typedef struct ReadStimData {
   FILE *pat_ptr; /* test vector file pointer */
   vpiHandle patin_h; /* pointer to store handle for a Verilog object */
   vpiHandle patout_h; /* pointer to store handle for a Verilog object */
-  vpiHandle fault_h; /* pointer to store handle for a Verilog object */
   p_ReadFaultData *fault_data; /* array of fault objects */
 } s_ReadStimData, *p_ReadStimData;
 
@@ -102,15 +101,16 @@ PLI_INT32 fsim_compiletf(PLI_BYTE8 *user_data)
 PLI_INT32 fsim_calltf(PLI_BYTE8 *user_data)
 {
   vpiHandle cb_h, systf_handle, arg_iterator, arg_handle;
+  vpiHandle module_iter, module_h, net_iter, net_h;
   s_vpi_value current_value;
   s_cb_data cb_data_s;
   s_vpi_time time_s;
   p_ReadStimData StimData;
   p_ReadFaultData *FaultData;
-  char *fileName;
+  char faultName[64];
+  char *fileName, *netName;
 
   StimData = (p_ReadStimData) malloc(sizeof(s_ReadStimData));
-  //StimData->rpt_ptr = NULL;
   StimData->faultIndex = 0;
   /* obtain a handle to the system task instance */
   systf_handle = vpi_handle(vpiSysTfCall, NULL);
@@ -132,14 +132,31 @@ PLI_INT32 fsim_calltf(PLI_BYTE8 *user_data)
     char oneline[128];
     while (fgets(oneline, 128, flt_ptr))
       StimData->faultIndex++;
-    FaultData = malloc(StimData->faultIndex * sizeof(p_ReadFaultData));
+    FaultData = malloc((StimData->faultIndex+1) * sizeof(p_ReadFaultData));
     StimData->fault_data = FaultData;
 
     rewind(flt_ptr);
     StimData->fault_data[StimData->faultIndex] = NULL;
     p_ReadFaultData oneFault = malloc(sizeof(s_ReadFaultData));
-    while (fscanf(flt_ptr, "%s %s %s %s\n", oneFault->fault, oneFault->faultModel, oneFault->faultClass, oneFault->faultStatus) != EOF)
+    while (fscanf(flt_ptr, "%s %s %s %s\n", faultName, oneFault->faultModel, oneFault->faultClass, oneFault->faultStatus) != EOF)
     {
+      // find the fault handle
+      module_iter = vpi_iterate(vpiModule, NULL);
+      module_h = vpi_scan(module_iter);
+      module_iter = vpi_iterate(vpiModule, module_h);
+      module_h = vpi_scan(module_iter);
+      if (module_h)
+      {
+        net_iter = vpi_iterate(vpiNet, module_h);
+        while ((net_h = vpi_scan(net_iter)))
+        {
+          netName = vpi_get_str(vpiFullName, net_h);
+          if (!strcmp(netName, faultName))
+          {
+            oneFault->fault_h = net_h;
+          }
+        }
+      }
       StimData->faultIndex--;
       StimData->fault_data[StimData->faultIndex] = oneFault;
       oneFault = malloc(sizeof(s_ReadFaultData));
@@ -217,7 +234,6 @@ PLI_INT32 fsim_simulate_good_machine(p_cb_data cb_data)
   /* get ReadStimData pointer from work area for this task instance */
   StimData = (p_ReadStimData)vpi_get_userdata(systf_h);
   StimData->gm_value = NULL;
-  StimData->fault_h = NULL;
   if (fscanf(StimData->pat_ptr, "%s\n", onePat) == EOF)
   {
     fclose(StimData->pat_ptr);
@@ -251,7 +267,7 @@ PLI_INT32 fsim_simulate_good_machine(p_cb_data cb_data)
 }
 PLI_INT32 fsim_simulate_faulty_machine(p_cb_data cb_data)
 {
-  vpiHandle systf_h, cb_h, module_iter, module_h, net_iter, net_h;
+  vpiHandle systf_h, cb_h;
   s_cb_data data_s;
   s_vpi_time time_s;
   s_vpi_value value_s;
@@ -274,52 +290,34 @@ PLI_INT32 fsim_simulate_faulty_machine(p_cb_data cb_data)
   else
   {
     oneFlt = StimData->fault_data[StimData->faultIndex++];
+    netName = vpi_get_str(vpiFullName, oneFlt->fault_h);
     if (strcmp(StimData->gm_value, value_s.value.str))
     {
       vpi_printf("net o has the FM value %s\n", value_s.value.str);
-      netName = vpi_get_str(vpiFullName, StimData->fault_h);
-      vpi_printf("Fault %s detected\n", netName);
+      vpi_printf("Fault %s %s detected\n", netName, oneFlt->faultModel);
       strcpy(oneFlt->faultStatus, "DET");
       FILE *rpt_ptr = fopen("fault.rpt", "a");
       fprintf(rpt_ptr, "%s %s %s %s\n", netName, oneFlt->faultModel, oneFlt->faultClass, "DET");
       fclose(rpt_ptr);
     }
-  }
-  // release the previous stuck value
-  if (StimData->fault_h)
-  {
-    value_s.value.str = "0";
-    vpi_put_value(StimData->fault_h, &value_s, NULL, vpiReleaseFlag);
+//      vpi_printf("unforcing Fault %s %s %s\n", netName, oneFlt->faultModel, oneFlt->faultStatus);
+    vpi_put_value(oneFlt->fault_h, &value_s, NULL, vpiReleaseFlag);
   }
 
   /* read next fault from the fault array */
   oneFlt = StimData->fault_data[StimData->faultIndex];
   while (oneFlt && !strcmp(oneFlt->faultStatus, "DET"))
-    oneFlt = StimData->fault_data[StimData->faultIndex++];
+    oneFlt = StimData->fault_data[++StimData->faultIndex];
   if (oneFlt)
   {
-    // find the fault handle
-    module_iter = vpi_iterate(vpiModule, NULL);
-    module_h = vpi_scan(module_iter);
-    module_iter = vpi_iterate(vpiModule, module_h);
-    module_h = vpi_scan(module_iter);
-    if (module_h)
-    {
-      net_iter = vpi_iterate(vpiNet, module_h);
-      while ((net_h = vpi_scan(net_iter)))
-      {
-        netName = vpi_get_str(vpiFullName, net_h);
-        if (!strcmp(netName, oneFlt->fault))
-        {
-          if (!strcmp(oneFlt->faultModel, "SA0"))
-            value_s.value.str = "0";
-          if (!strcmp(oneFlt->faultModel, "SA1"))
-            value_s.value.str = "1";
-          vpi_put_value(net_h, &value_s, NULL, vpiForceFlag);
-          StimData->fault_h = net_h;
-        }
-      }
-    }
+//      netName = vpi_get_str(vpiFullName, oneFlt->fault_h);
+//      vpi_printf("Seeding Fault %s %s %s\n", netName, oneFlt->faultModel, oneFlt->faultStatus);
+    if (!strcmp(oneFlt->faultModel, "SA0"))
+      value_s.value.str = "0";
+    if (!strcmp(oneFlt->faultModel, "SA1"))
+      value_s.value.str = "1";
+    vpi_put_value(oneFlt->fault_h, &value_s, NULL, vpiForceFlag);
+
     /* schedule callback to this routine when time to read next vector */
     time_s.type = vpiSimTime;
     time_s.low = 0;
