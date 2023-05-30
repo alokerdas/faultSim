@@ -36,7 +36,7 @@ PLI_INT32 fsim_compiletf(PLI_BYTE8 *user_data)
   arg_iterator = vpi_iterate(vpiArgument, systf_handle);
   if (arg_iterator == NULL)
   {
-    vpi_printf("ERROR: $faultSimulate requires 3 argument\n");
+    vpi_printf("ERROR: $faultSimulate requires four arguments\n");
     vpi_control(vpiFinish,0); /* abort simulation */
     return(0);
   }
@@ -45,7 +45,7 @@ PLI_INT32 fsim_compiletf(PLI_BYTE8 *user_data)
   arg_type = vpi_get(vpiType, arg_handle);
   if (arg_type != vpiReg)
   {
-    vpi_printf("ERROR: $faultSimulate first arg must be a reg\n");
+    vpi_printf("ERROR: $faultSimulate first argument must be a reg\n");
     vpi_free_object(arg_iterator); /* free iterator memory */
     vpi_control(vpiFinish,0); /* abort simulation */
     return(0);
@@ -55,7 +55,7 @@ PLI_INT32 fsim_compiletf(PLI_BYTE8 *user_data)
   arg_type = vpi_get(vpiType, arg_handle);
   if (arg_type != vpiNet)
   {
-    vpi_printf("ERROR: $faultSimulate second arg must be a reg\n");
+    vpi_printf("ERROR: $faultSimulate second argument must be a reg\n");
     vpi_free_object(arg_iterator); /* free iterator memory */
     vpi_control(vpiFinish,0); /* abort simulation */
     return(0);
@@ -65,7 +65,7 @@ PLI_INT32 fsim_compiletf(PLI_BYTE8 *user_data)
   arg_type = vpi_get(vpiType, arg_handle);
   if (arg_type != vpiConstant)
   {
-    vpi_printf("ERROR: $faultSimulate third arg must be filename within quotes\n");
+    vpi_printf("ERROR: $faultSimulate third argument must be a filename within quotes\n");
     vpi_free_object(arg_iterator); /* free iterator memory */
     vpi_control(vpiFinish,0); /* abort simulation */
     return(0);
@@ -74,16 +74,7 @@ PLI_INT32 fsim_compiletf(PLI_BYTE8 *user_data)
   arg_type = vpi_get(vpiType, arg_handle);
   if (arg_type != vpiConstant)
   {
-    vpi_printf("ERROR: $faultSimulate fourth arg must be filename within quotes\n");
-    vpi_free_object(arg_iterator); /* free iterator memory */
-    vpi_control(vpiFinish,0); /* abort simulation */
-    return(0);
-  }
-  arg_handle = vpi_scan(arg_iterator);
-  arg_type = vpi_get(vpiType, arg_handle);
-  if (arg_type != vpiModule)
-  {
-    vpi_printf("ERROR: $faultSimulate fifth arg must be a module\n");
+    vpi_printf("ERROR: $faultSimulate fourth argument must be a filename within quotes\n");
     vpi_free_object(arg_iterator); /* free iterator memory */
     vpi_control(vpiFinish,0); /* abort simulation */
     return(0);
@@ -297,7 +288,7 @@ PLI_INT32 fsim_simulate_faulty_machine(p_cb_data cb_data)
       vpi_printf("Fault %s %s detected\n", netName, oneFlt->faultModel);
       strcpy(oneFlt->faultStatus, "DET");
       FILE *rpt_ptr = fopen("fault.rpt", "a");
-      fprintf(rpt_ptr, "%s %s %s %s\n", netName, oneFlt->faultModel, oneFlt->faultClass, "DET");
+      fprintf(rpt_ptr, "%s %s %s DET\n", netName, oneFlt->faultModel, oneFlt->faultClass);
       fclose(rpt_ptr);
     }
 //      vpi_printf("unforcing Fault %s %s %s\n", netName, oneFlt->faultModel, oneFlt->faultStatus);
