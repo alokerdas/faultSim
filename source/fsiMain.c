@@ -14,6 +14,7 @@ typedef struct ReadStimData {
   int faultIndex;
   char *gm_value;
   FILE *pat_ptr; /* test vector file pointer */
+  FILE *rpt_ptr; /* test vector file pointer */
   vpiHandle patin_h; /* pointer to store handle for a Verilog object */
   vpiHandle patout_h; /* pointer to store handle for a Verilog object */
   p_ReadFaultData *fault_data; /* array of fault objects */
@@ -36,7 +37,7 @@ PLI_INT32 fsim_compiletf(PLI_BYTE8 *user_data)
   arg_iterator = vpi_iterate(vpiArgument, systf_handle);
   if (arg_iterator == NULL)
   {
-    vpi_printf("ERROR: $faultSimulate requires four arguments\n");
+    vpi_printf("ERROR: $faultSimulate requires five arguments\n");
     vpi_control(vpiFinish,0); /* abort simulation */
     return(0);
   }
@@ -80,9 +81,18 @@ PLI_INT32 fsim_compiletf(PLI_BYTE8 *user_data)
     return(0);
   }
   arg_handle = vpi_scan(arg_iterator);
+  arg_type = vpi_get(vpiType, arg_handle);
+  if (arg_type != vpiConstant)
+  {
+    vpi_printf("ERROR: $faultSimulate fifth argument must be a filename within quotes\n");
+    vpi_free_object(arg_iterator); /* free iterator memory */
+    vpi_control(vpiFinish,0); /* abort simulation */
+    return(0);
+  }
+  arg_handle = vpi_scan(arg_iterator);
   if (arg_handle != NULL)
   {
-    vpi_printf("ERROR: $faultSimulate cannot have more than four arguments\n");
+    vpi_printf("ERROR: $faultSimulate cannot have more than five arguments\n");
     vpi_free_object(arg_iterator); /* free iterator memory */
     vpi_control(vpiFinish,0); /* abort simulation */
     return(0);
@@ -172,12 +182,19 @@ PLI_INT32 fsim_calltf(PLI_BYTE8 *user_data)
     vpi_control(vpiFinish, 1); /* abort simulation */
     return(0);
   }
+  arg_handle = vpi_scan(arg_iterator);
+  current_value.format = vpiStringVal;
+  vpi_get_value(arg_handle, &current_value);
+  fileName = current_value.value.str;
+  vpi_printf("Fault report file %s \n", fileName);
+  StimData->rpt_ptr = fopen(fileName, "w");
+  if (!StimData->rpt_ptr)
+  {
+    vpi_printf("ERROR: $faultSimulate could not open fault report file %s\n", fileName);
+    vpi_control(vpiFinish, 1); /* abort simulation */
+    return(0);
+  }
   vpi_free_object(arg_iterator); /* free iterator memory */
-
-  /* create the fault report file now. Preexisting file will be deleted. Current run can append */
-  FILE *rpt_ptr = fopen("fault.rpt", "w");
-  if (rpt_ptr)
-    fclose(rpt_ptr);
 
   /* setup a callback for start of simulation */
   time_s.type = vpiSimTime;
@@ -228,6 +245,7 @@ PLI_INT32 fsim_simulate_good_machine(p_cb_data cb_data)
   if (fscanf(StimData->pat_ptr, "%s\n", onePat) == EOF)
   {
     fclose(StimData->pat_ptr);
+    fclose(StimData->rpt_ptr);
     vpi_control(vpiFinish, 1); /* finish simulation */
     return(0);
   }
@@ -287,11 +305,8 @@ PLI_INT32 fsim_simulate_faulty_machine(p_cb_data cb_data)
       vpi_printf("net o has the FM value %s\n", value_s.value.str);
       vpi_printf("Fault %s %s detected\n", netName, oneFlt->faultModel);
       strcpy(oneFlt->faultStatus, "DET");
-      FILE *rpt_ptr = fopen("fault.rpt", "a");
-      fprintf(rpt_ptr, "%s %s %s DET\n", netName, oneFlt->faultModel, oneFlt->faultClass);
-      fclose(rpt_ptr);
+      fprintf(StimData->rpt_ptr, "%s %s %s DET\n", netName, oneFlt->faultModel, oneFlt->faultClass);
     }
-//      vpi_printf("unforcing Fault %s %s %s\n", netName, oneFlt->faultModel, oneFlt->faultStatus);
     vpi_put_value(oneFlt->fault_h, &value_s, NULL, vpiReleaseFlag);
   }
 
@@ -301,8 +316,6 @@ PLI_INT32 fsim_simulate_faulty_machine(p_cb_data cb_data)
     oneFlt = StimData->fault_data[++StimData->faultIndex];
   if (oneFlt)
   {
-//      netName = vpi_get_str(vpiFullName, oneFlt->fault_h);
-//      vpi_printf("Seeding Fault %s %s %s\n", netName, oneFlt->faultModel, oneFlt->faultStatus);
     if (!strcmp(oneFlt->faultModel, "SA0"))
       value_s.value.str = "0";
     if (!strcmp(oneFlt->faultModel, "SA1"))
