@@ -24,7 +24,7 @@ PLI_INT32 fenum_compiletf(PLI_BYTE8 *user_data)
   }
   /* check the type of object in system task arguments */
   arg_handle = vpi_scan(arg_iterator);
-  if (vpi_get(vpiType, arg_handle) != vpiConstant)
+  if (vpi_get(vpiType, arg_handle) != vpiReg)
   {
     vpi_printf("ERROR: $faultEnumerate first argument must be a filename within quotes\n");
     vpi_free_object(arg_iterator); /* free iterator memory */

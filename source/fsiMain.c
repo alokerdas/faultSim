@@ -64,7 +64,7 @@ PLI_INT32 fsim_compiletf(PLI_BYTE8 *user_data)
   /* check that there are no more system task arguments */
   arg_handle = vpi_scan(arg_iterator);
   arg_type = vpi_get(vpiType, arg_handle);
-  if (arg_type != vpiConstant)
+  if (arg_type != vpiReg)
   {
     vpi_printf("ERROR: $faultSimulate third argument must be a filename within quotes\n");
     vpi_free_object(arg_iterator); /* free iterator memory */
@@ -73,7 +73,7 @@ PLI_INT32 fsim_compiletf(PLI_BYTE8 *user_data)
   }
   arg_handle = vpi_scan(arg_iterator);
   arg_type = vpi_get(vpiType, arg_handle);
-  if (arg_type != vpiConstant)
+  if (arg_type != vpiReg)
   {
     vpi_printf("ERROR: $faultSimulate fourth argument must be a filename within quotes\n");
     vpi_free_object(arg_iterator); /* free iterator memory */
@@ -82,7 +82,7 @@ PLI_INT32 fsim_compiletf(PLI_BYTE8 *user_data)
   }
   arg_handle = vpi_scan(arg_iterator);
   arg_type = vpi_get(vpiType, arg_handle);
-  if (arg_type != vpiConstant)
+  if (arg_type != vpiReg)
   {
     vpi_printf("ERROR: $faultSimulate fifth argument must be a filename within quotes\n");
     vpi_free_object(arg_iterator); /* free iterator memory */
