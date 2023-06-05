@@ -12,6 +12,8 @@ typedef struct ReadFaultData {
 } s_ReadFaultData, *p_ReadFaultData;
 typedef struct ReadStimData {
   int faultIndex;
+  int totalFaults;
+  int detectedFaults;
   char *gm_value;
   FILE *pat_ptr; /* test vector file pointer */
   FILE *rpt_ptr; /* test vector file pointer */
@@ -113,6 +115,7 @@ PLI_INT32 fsim_calltf(PLI_BYTE8 *user_data)
 
   StimData = (p_ReadStimData) malloc(sizeof(s_ReadStimData));
   StimData->faultIndex = 0;
+  StimData->detectedFaults = 0;
   /* obtain a handle to the system task instance */
   systf_handle = vpi_handle(vpiSysTfCall, NULL);
   /* obtain handle to system task argument
@@ -133,6 +136,7 @@ PLI_INT32 fsim_calltf(PLI_BYTE8 *user_data)
     char oneline[128];
     while (fgets(oneline, 128, flt_ptr))
       StimData->faultIndex++;
+    StimData->totalFaults = StimData->faultIndex;
     FaultData = malloc((StimData->faultIndex+1) * sizeof(p_ReadFaultData));
     StimData->fault_data = FaultData;
 
@@ -242,11 +246,14 @@ PLI_INT32 fsim_simulate_good_machine(p_cb_data cb_data)
   /* get ReadStimData pointer from work area for this task instance */
   StimData = (p_ReadStimData)vpi_get_userdata(systf_h);
   StimData->gm_value = NULL;
-  if (fscanf(StimData->pat_ptr, "%s\n", onePat) == EOF)
+  if ((fscanf(StimData->pat_ptr, "%s\n", onePat) == EOF) || (StimData->detectedFaults == StimData->totalFaults))
   {
     fclose(StimData->pat_ptr);
     fclose(StimData->rpt_ptr);
     vpi_control(vpiFinish, 1); /* finish simulation */
+    vpi_printf("Total fault count =  %d\n", StimData->totalFaults);
+    vpi_printf("Detected fault count =  %d\n", StimData->detectedFaults);
+    vpi_printf("Coverage =  %d %\n", 100 * StimData->detectedFaults/StimData->totalFaults);
     return(0);
   }
   else
@@ -305,6 +312,7 @@ PLI_INT32 fsim_simulate_faulty_machine(p_cb_data cb_data)
       vpi_printf("net o has the FM value %s\n", value_s.value.str);
       vpi_printf("Fault %s %s detected\n", netName, oneFlt->faultModel);
       strcpy(oneFlt->faultStatus, "DET");
+      StimData->detectedFaults++;
       fprintf(StimData->rpt_ptr, "%s %s %s DET\n", netName, oneFlt->faultModel, oneFlt->faultClass);
     }
     vpi_put_value(oneFlt->fault_h, &value_s, NULL, vpiReleaseFlag);
