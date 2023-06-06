@@ -12,6 +12,7 @@ typedef struct ReadFaultData {
 } s_ReadFaultData, *p_ReadFaultData;
 typedef struct ReadStimData {
   int faultIndex;
+  int patIndex;
   int totalFaults;
   int detectedFaults;
   char *gm_value;
@@ -115,6 +116,7 @@ PLI_INT32 fsim_calltf(PLI_BYTE8 *user_data)
 
   StimData = (p_ReadStimData) malloc(sizeof(s_ReadStimData));
   StimData->faultIndex = 0;
+  StimData->patIndex = 0;
   StimData->detectedFaults = 0;
   /* obtain a handle to the system task instance */
   systf_handle = vpi_handle(vpiSysTfCall, NULL);
@@ -179,7 +181,7 @@ PLI_INT32 fsim_calltf(PLI_BYTE8 *user_data)
   vpi_get_value(arg_handle, &current_value);
   fileName = current_value.value.str;
   vpi_printf("Pattern file %s \n", fileName);
-  StimData->pat_ptr = fopen(fileName, "r");
+  StimData->pat_ptr = fopen(fileName, "w");
   if (!StimData->pat_ptr)
   {
     vpi_printf("ERROR: $faultSimulate could not open pattern file %s\n", fileName);
@@ -219,7 +221,7 @@ void fsim_register()
   s_vpi_systf_data tf_data;
   tf_data.type = vpiSysTask;
   tf_data.sysfunctype = 0;
-  tf_data.tfname = "$faultSimulate";
+  tf_data.tfname = "$generatePatterns";
   tf_data.calltf = fsim_calltf;
   tf_data.compiletf = fsim_compiletf;
   tf_data.sizetf = NULL;
@@ -241,6 +243,7 @@ PLI_INT32 fsim_simulate_good_machine(p_cb_data cb_data)
   p_ReadStimData StimData; /* pointer to a ReadStimData structure */
   PLI_INT32 inputSize;
   char *onePat;
+  int j;
 
   /* retrieve system task handle from user_data */
   systf_h = (vpiHandle)cb_data->user_data;
@@ -248,8 +251,56 @@ PLI_INT32 fsim_simulate_good_machine(p_cb_data cb_data)
   StimData = (p_ReadStimData)vpi_get_userdata(systf_h);
   StimData->gm_value = NULL;
   inputSize = vpi_get(vpiSize, StimData->patin_h);
-  onePat = malloc(inputSize * sizeof(char));
-  if ((fscanf(StimData->pat_ptr, "%s\n", onePat) == EOF) || (StimData->detectedFaults == StimData->totalFaults))
+  onePat = malloc(inputSize+1 * sizeof(char));
+  onePat[inputSize] = '\0';
+  switch (StimData->patIndex++)
+  {
+    case 0:
+    {
+      j = 0;
+      while (j < inputSize)
+        onePat[j++] = '1';
+    }
+    break;
+    case 1:
+    {
+      j = 0;
+      while (j < inputSize)
+      {
+        onePat[j++] = '0';
+        onePat[j++] = '1';
+      }
+    }
+    break;
+    case 2:
+    {
+      j = 0;
+      while (j < inputSize)
+      {
+        onePat[j++] = '1';
+        onePat[j++] = '0';
+      }
+    }
+    break;
+    case 3:
+    {
+      j = 0;
+      while (j < inputSize)
+        onePat[j++] = '0';
+    }
+    break;
+    default:
+    {
+      fclose(StimData->pat_ptr);
+      fclose(StimData->rpt_ptr);
+      vpi_control(vpiFinish, 1); /* finish simulation */
+      vpi_printf("Total faults %d  Detected %d  Coverage %d\n", StimData->totalFaults, StimData->detectedFaults, 100 * StimData->detectedFaults/StimData->totalFaults);
+      return(0);
+    }
+      // atpg algorithms
+    break;
+  }
+  if (StimData->detectedFaults == StimData->totalFaults)
   {
     fclose(StimData->pat_ptr);
     fclose(StimData->rpt_ptr);
@@ -259,6 +310,7 @@ PLI_INT32 fsim_simulate_good_machine(p_cb_data cb_data)
   }
   else
   {
+    fprintf(StimData->pat_ptr, "%s\n", onePat);
     vpi_printf("Total faults %d  Detected %d  Coverage %d\n", StimData->totalFaults, StimData->detectedFaults, 100 * StimData->detectedFaults/StimData->totalFaults);
     value_s.format = vpiBinStrVal;
     value_s.value.str = onePat;
