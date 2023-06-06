@@ -252,14 +252,13 @@ PLI_INT32 fsim_simulate_good_machine(p_cb_data cb_data)
   StimData->gm_value = NULL;
   inputSize = vpi_get(vpiSize, StimData->patin_h);
   onePat = malloc(inputSize+1 * sizeof(char));
-  onePat[inputSize] = '\0';
   switch (StimData->patIndex++)
   {
     case 0:
     {
       j = 0;
       while (j < inputSize)
-        onePat[j++] = '1';
+        onePat[j++] = '0';
     }
     break;
     case 1:
@@ -286,7 +285,7 @@ PLI_INT32 fsim_simulate_good_machine(p_cb_data cb_data)
     {
       j = 0;
       while (j < inputSize)
-        onePat[j++] = '0';
+        onePat[j++] = '1';
     }
     break;
     default:
@@ -300,6 +299,7 @@ PLI_INT32 fsim_simulate_good_machine(p_cb_data cb_data)
       // atpg algorithms
     break;
   }
+  onePat[inputSize] = '\0';
   if (StimData->detectedFaults == StimData->totalFaults)
   {
     fclose(StimData->pat_ptr);
