@@ -357,7 +357,7 @@ PLI_INT32 fsim_simulate_faulty_machine(p_cb_data cb_data)
   if(!StimData->gm_value)
   {
     StimData->gm_value = strdup(value_s.value.str);
-    vpi_printf("net o has the GM value %s\n", StimData->gm_value);
+    vpi_printf("Output has the GM value %s\n", StimData->gm_value);
   }
   else
   {
@@ -365,7 +365,7 @@ PLI_INT32 fsim_simulate_faulty_machine(p_cb_data cb_data)
     netName = vpi_get_str(vpiFullName, oneFlt->fault_h);
     if (strcmp(StimData->gm_value, value_s.value.str))
     {
-      vpi_printf("net o has the FM value %s\n", value_s.value.str);
+      vpi_printf("Output has the FM value %s\n", value_s.value.str);
       vpi_printf("Fault %s %s detected\n", netName, oneFlt->faultModel);
       strcpy(oneFlt->faultStatus, "DET");
       StimData->detectedFaults++;
