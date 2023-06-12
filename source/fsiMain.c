@@ -239,8 +239,9 @@ PLI_INT32 fsim_simulate_good_machine(p_cb_data cb_data)
   s_vpi_time time_s;
   s_vpi_value value_s;
   p_ReadStimData StimData; /* pointer to a ReadStimData structure */
+  p_ReadFaultData oneFlt; /* pointer to a ReadFaultData structure */
   PLI_INT32 inputSize;
-  char *onePat;
+  char *onePat, *netName;
 
   /* retrieve system task handle from user_data */
   systf_h = (vpiHandle)cb_data->user_data;
@@ -252,6 +253,12 @@ PLI_INT32 fsim_simulate_good_machine(p_cb_data cb_data)
   if ((fscanf(StimData->pat_ptr, "%s\n", onePat) == EOF) || (StimData->detectedFaults == StimData->totalFaults))
   {
     fclose(StimData->pat_ptr);
+    for (StimData->faultIndex = 0; StimData->faultIndex < StimData->totalFaults; StimData->faultIndex++)
+    {
+      oneFlt = StimData->fault_data[StimData->faultIndex];
+      netName = vpi_get_str(vpiFullName, oneFlt->fault_h);
+      fprintf(StimData->rpt_ptr, "%s %s %s %s\n", netName, oneFlt->faultModel, oneFlt->faultClass, oneFlt->faultStatus);
+    }
     fclose(StimData->rpt_ptr);
     vpi_control(vpiFinish, 1); /* finish simulation */
     vpi_printf("Total faults %d  Detected %d  Coverage %d\n", StimData->totalFaults, StimData->detectedFaults, 100 * StimData->detectedFaults/StimData->totalFaults);
@@ -317,7 +324,6 @@ PLI_INT32 fsim_simulate_faulty_machine(p_cb_data cb_data)
       vpi_printf("Fault %s %s detected\n", netName, oneFlt->faultModel);
       strcpy(oneFlt->faultStatus, "DET");
       StimData->detectedFaults++;
-      fprintf(StimData->rpt_ptr, "%s %s %s DET\n", netName, oneFlt->faultModel, oneFlt->faultClass);
     }
     vpi_put_value(oneFlt->fault_h, &value_s, NULL, vpiReleaseFlag);
   }
