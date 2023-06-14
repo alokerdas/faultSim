@@ -15,6 +15,7 @@ typedef struct ReadStimData {
   int patIndex;
   int totalFaults;
   int detectedFaults;
+  char *onePatrn;
   char *gm_value;
   FILE *pat_ptr; /* test vector file pointer */
   FILE *rpt_ptr; /* test vector file pointer */
@@ -118,6 +119,7 @@ PLI_INT32 fsim_calltf(PLI_BYTE8 *user_data)
   StimData->faultIndex = 0;
   StimData->patIndex = 0;
   StimData->detectedFaults = 0;
+  StimData->onePatrn = NULL;
   /* obtain a handle to the system task instance */
   systf_handle = vpi_handle(vpiSysTfCall, NULL);
   /* obtain handle to system task argument
@@ -250,6 +252,12 @@ PLI_INT32 fsim_simulate_good_machine(p_cb_data cb_data)
   systf_h = (vpiHandle)cb_data->user_data;
   /* get ReadStimData pointer from work area for this task instance */
   StimData = (p_ReadStimData)vpi_get_userdata(systf_h);
+  if (StimData->onePatrn)
+  {
+    fprintf(StimData->pat_ptr, "%s\n", StimData->onePatrn);
+    free(StimData->onePatrn);
+    StimData->onePatrn = NULL;
+  }
   StimData->gm_value = NULL;
   inputSize = vpi_get(vpiSize, StimData->patin_h);
   onePat = malloc(inputSize+1 * sizeof(char));
@@ -323,7 +331,6 @@ PLI_INT32 fsim_simulate_good_machine(p_cb_data cb_data)
   }
   else
   {
-    fprintf(StimData->pat_ptr, "%s\n", onePat);
     vpi_printf("Total faults %d  Detected %d  Coverage %d\n", StimData->totalFaults, StimData->detectedFaults, 100 * StimData->detectedFaults/StimData->totalFaults);
     value_s.format = vpiBinStrVal;
     value_s.value.str = onePat;
@@ -382,6 +389,12 @@ PLI_INT32 fsim_simulate_faulty_machine(p_cb_data cb_data)
       vpi_printf("Fault %s %s detected\n", netName, oneFlt->faultModel);
       strcpy(oneFlt->faultStatus, "DET");
       StimData->detectedFaults++;
+
+      if (!StimData->onePatrn)
+      {
+        vpi_get_value(StimData->patin_h, &value_s);
+        StimData->onePatrn = strdup(value_s.value.str);
+      }
     }
     vpi_put_value(oneFlt->fault_h, &value_s, NULL, vpiReleaseFlag);
   }
